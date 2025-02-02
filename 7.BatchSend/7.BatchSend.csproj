@@ -3,15 +3,12 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
-    <RootNamespace>_4.MessageSessionSender</RootNamespace>
+    <RootNamespace>_7.BatchSend</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
-	
-	 
-  <ItemGroup>
-    <PackageReference Include="Azure.Messaging.ServiceBus" Version="7.18.3" />
-    <PackageReference Include="RandomString4Net" Version="1.0.0" />
-  </ItemGroup>
-
+	<ItemGroup>
+		<PackageReference Include="Azure.Messaging.ServiceBus" Version="7.18.3" />
+		<PackageReference Include="RandomString4Net" Version="1.0.0" />
+	</ItemGroup>
 </Project>

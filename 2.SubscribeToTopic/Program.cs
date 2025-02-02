@@ -1,11 +1,22 @@
 ﻿using Azure.Messaging.ServiceBus;
+using Azure.Messaging.ServiceBus.Administration;
 
 Console.WriteLine("Enter a name for the subscription");
 var subscriberName = Console.ReadLine();
 
+ServiceBusAdministrationClient adminClient = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
+
+var topicName = "mytopic";
+
+//create topic
+if (!await adminClient.SubscriptionExistsAsync(topicName, subscriberName))
+{
+    await adminClient.CreateSubscriptionAsync(new CreateSubscriptionOptions(topicName, subscriberName));
+}
+
 ServiceBusClient client = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
 
-ServiceBusProcessor processor = client.CreateProcessor("mytopic",subscriberName, new ServiceBusProcessorOptions());
+ServiceBusProcessor processor = client.CreateProcessor(topicName ,subscriberName, new ServiceBusProcessorOptions());
 
 // add handler to process messages
 processor.ProcessMessageAsync += MessageHandler;

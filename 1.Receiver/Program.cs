@@ -1,6 +1,17 @@
 ﻿using Azure.Messaging.ServiceBus;
+using Azure.Messaging.ServiceBus.Administration;
 
-ServiceBusClient client = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
+ServiceBusAdministrationClient adminClient = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
+var queueName = "sendrecieve";
+
+//create queue
+if (!await adminClient.QueueExistsAsync(queueName))
+{
+    await adminClient.CreateQueueAsync(new CreateQueueOptions(queueName)
+    {
+        LockDuration = TimeSpan.FromSeconds(2)
+    });
+}
 
 //configure the behavior of the ServiceBusProcessor
 ServiceBusProcessorOptions options = new()
@@ -13,10 +24,11 @@ ServiceBusProcessorOptions options = new()
     Identifier = "1.Receiver" //id of the ServiceBusProcessor
 };
 
+ServiceBusClient client = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
+
 // create a processor that we can use to process the messages
 // Abstraction around the `ServiceBusReceiver` that allows using an event based model for processing received message
-// 
-ServiceBusProcessor processor = client.CreateProcessor("sendrecieve", options);
+ServiceBusProcessor processor = client.CreateProcessor(queueName, options);
 
 // add handler to process messages
 processor.ProcessMessageAsync += MessageHandler;
@@ -29,9 +41,6 @@ await processor.StartProcessingAsync();
 
 Console.WriteLine("Wait for a minute and then press any key to end the processing");
 Console.ReadKey();
-
-// stop processing 
-Console.WriteLine("Stopping the receiver...");
 
 await processor.StopProcessingAsync();
 
@@ -46,7 +55,7 @@ async Task MessageHandler(ProcessMessageEventArgs args)
         Console.WriteLine($"{applicationProperty.Key} - {applicationProperty.Value}");
     }
     Console.WriteLine($"{args.Message.MessageId}");
-
+    Console.WriteLine("===================================================");
     // complete the message. message is deleted from the queue. 
     await args.CompleteMessageAsync(args.Message);
 }

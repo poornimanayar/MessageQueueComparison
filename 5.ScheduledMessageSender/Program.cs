@@ -25,5 +25,4 @@ var sequenceNumber = await sender.ScheduleMessageAsync(message, DateTimeOffset.N
 
 Console.WriteLine($"Scheduled Message sent to queue at {DateTime.UtcNow}");
 
-
 Console.ReadKey();

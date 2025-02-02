@@ -4,9 +4,6 @@ using Azure.Messaging.ServiceBus.Administration;
 Console.WriteLine("Enter a name for the subscription");
 var subscriberName = Console.ReadLine();
 
-Console.WriteLine("Enter the subject of messages to recieve - 0 = All, 1 = Red or 2 = Blue");
-var ruleName = Console.ReadLine();
-
 var topicName = "pubsubwithfilter";
 
 ServiceBusAdministrationClient adminClient = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
@@ -16,6 +13,9 @@ if (!await adminClient.TopicExistsAsync(topicName))
 {
     await adminClient.CreateTopicAsync(topicName);
 }
+
+Console.WriteLine("Enter the subject of messages to recieve - 0 = All, 1 = Red or 2 = Blue");
+var ruleName = Console.ReadLine();
 
 //create subscriptionRules
 if (ruleName == "0")
@@ -47,10 +47,7 @@ else if (ruleName == "2")
     {
         //create subscription and add a filter for messages with subject = blue
         await adminClient.CreateSubscriptionAsync(new CreateSubscriptionOptions(topicName, subscriberName),
-            new CreateRuleOptions { 
-                Name = "BlueCorrelationRule", 
-                Filter = new CorrelationRuleFilter() { Subject = "blue" } , 
-                Action = new SqlRuleAction("SET actionset = 'yup!'" )});
+            new CreateRuleOptions { Name = "BlueCorrelationRule", Filter = new CorrelationRuleFilter() { Subject = "blue" } , Action = new SqlRuleAction("SET actionset = 'yup!'" )});
     }
 }
 

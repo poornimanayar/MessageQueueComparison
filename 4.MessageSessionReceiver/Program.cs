@@ -25,10 +25,10 @@ if (await adminClient.QueueExistsAsync(queueName))
     // add handler to process messages
     processor.ProcessMessageAsync += MessageHandler;
 
-// add handler to process any errors
+    // add handler to process any errors
     processor.ProcessErrorAsync += ErrorHandler;
 
-// start processing 
+    // start processing 
     await processor.StartProcessingAsync();
 
     Console.ReadKey();
@@ -49,7 +49,7 @@ async Task MessageHandler(ProcessSessionMessageEventArgs args)
     if (isLast != null && (bool)isLast)
     {
         Console.WriteLine($"Last message in the session {args.Message.SessionId}");
-       await args.SetSessionStateAsync(null);
+        await args.SetSessionStateAsync(null);
         args.ReleaseSession();
     }
 

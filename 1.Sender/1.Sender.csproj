@@ -9,6 +9,7 @@
 
     <ItemGroup>
       <PackageReference Include="Azure.Messaging.ServiceBus" Version="7.18.3" />
+      <PackageReference Include="RandomString4Net" Version="1.0.0" />
     </ItemGroup>
 
 </Project>

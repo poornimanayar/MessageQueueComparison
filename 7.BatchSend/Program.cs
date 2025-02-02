@@ -2,17 +2,15 @@
 using Azure.Messaging.ServiceBus.Administration;
 using RandomString4Net;
 
-var queueName = "messagesessionssample";
-
 ServiceBusAdministrationClient adminClient = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
+var queueName = "sendrecieve";
 
-
-//create topic
+//create queue
 if (!await adminClient.QueueExistsAsync(queueName))
 {
     await adminClient.CreateQueueAsync(new CreateQueueOptions(queueName)
     {
-        RequiresSession = true
+        LockDuration = TimeSpan.FromSeconds(2)
     });
 }
 
@@ -20,26 +18,21 @@ ServiceBusClient client = new(Environment.GetEnvironmentVariable("ASB:Connection
 
 ServiceBusSender sender = client.CreateSender(queueName);
 
-Random random = new();
-
 string messageBody = string.Empty;
 
-for (int i = 0; i < 100; i++)
+List<ServiceBusMessage> messages = new();
+
+for (int i = 0; i < 20; i++)
 {
     messageBody = RandomString.GetString(Types.ALPHANUMERIC_MIXEDCASE_WITH_SYMBOLS, 10, true);
 
-    //create unique application-generated session id to group messages into a session
-    var sessionId = random.Next(0, 3).ToString();
+    //Send a message to the queue, serialize before sending an object
+    var message = new ServiceBusMessage($"{messageBody}");
 
-    var message = new ServiceBusMessage($"{messageBody}") { SessionId = sessionId};
-
-    //indicates last message in the session
-    message.ApplicationProperties.Add("IsLast", i == 99 ? 1 : 0);
+    messages.Add(message);
 
     // Use the producer client to send the batch of messages to the Service Bus queue
-    await sender.SendMessageAsync(message);
+    await sender.SendMessagesAsync(messages);
 
-    Console.WriteLine($"Message with sessionId {sessionId} sent to topic");
+    Console.WriteLine("Batch send messages");
 }
-
-Console.ReadKey();

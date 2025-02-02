@@ -5,7 +5,6 @@ var topicName = "pubsubwithfilter";
 
 ServiceBusAdministrationClient adminClient = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
 
-
 //create topic
 if (!await adminClient.TopicExistsAsync(topicName))
 {

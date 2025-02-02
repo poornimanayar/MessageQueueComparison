@@ -36,7 +36,6 @@ async Task MessageHandler(ProcessMessageEventArgs args)
 
     await args.DeferMessageAsync(args.Message);
 
-
     //use the ServiceBusReceiver to receive the deferred message
     //ServiceBusReceiver receiver = client.CreateReceiver(queueName);
     //var deferredMessage = await receiver.ReceiveDeferredMessageAsync(seqNumber);
