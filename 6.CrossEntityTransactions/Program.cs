@@ -1,7 +1,5 @@
 ﻿using Azure.Messaging.ServiceBus;
 using Azure.Messaging.ServiceBus.Administration;
-using Microsoft.Azure.Amqp.Framing;
-using System.Text;
 using System.Transactions;
 
 var queueName = "transactions";

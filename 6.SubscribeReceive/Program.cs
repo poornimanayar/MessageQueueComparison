@@ -18,7 +18,8 @@ var request = new ReceiveMessageRequest
             { "All" }, //use this to get all message attributes, can also be specific attribute names or wildcards 
     MaxNumberOfMessages = 2,
     VisibilityTimeout = 40,
-    WaitTimeSeconds = 0 //set to 0 for short polling, 1-20 for long polling
+    WaitTimeSeconds = 0 //set to 0 for short polling, 1-20 for long polling,
+    
 };
 
 while (true)

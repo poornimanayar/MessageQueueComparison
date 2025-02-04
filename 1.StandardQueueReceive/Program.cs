@@ -20,10 +20,10 @@ var request = new ReceiveMessageRequest
     VisibilityTimeout = 40,
     WaitTimeSeconds = 0 //set to 0 for short polling, 1-20 for long polling
 };
+
+    var response = await sqsClient.ReceiveMessageAsync(request);
 while (true)
 {
-    var response = await sqsClient.ReceiveMessageAsync(request);
-
     foreach (var message in response.Messages)
     {
         //print the message attributes
@@ -69,5 +69,7 @@ while (true)
         
     }
 }
+
+    
 
 public record MySqsMessage(string Description);
