@@ -2,32 +2,30 @@
 using Azure.Messaging.ServiceBus.Administration;
 
 ServiceBusAdministrationClient adminClient = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
-var queueName = "sendrecieve";
-
+var requestqueueName = "requestqueue";
 //create queue
-if (!await adminClient.QueueExistsAsync(queueName))
+if (!await adminClient.QueueExistsAsync(requestqueueName))
 {
-    await adminClient.CreateQueueAsync(new CreateQueueOptions(queueName)
+    await adminClient.CreateQueueAsync(new CreateQueueOptions(requestqueueName)
     {
         LockDuration = TimeSpan.FromSeconds(2)
     });
 }
+
+ServiceBusClient client = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
 
 //configure the behavior of the ServiceBusProcessor
 ServiceBusProcessorOptions options = new()
 {
     AutoCompleteMessages = false,
     MaxConcurrentCalls = 1,
-    MaxAutoLockRenewalDuration = TimeSpan.FromMinutes(2),
+    MaxAutoLockRenewalDuration = TimeSpan.FromMinutes(5),
     ReceiveMode = ServiceBusReceiveMode.PeekLock,
     Identifier = "1.Receiver" //id of the ServiceBusProcessor
 };
 
-ServiceBusClient client = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
+ServiceBusProcessor processor = client.CreateProcessor(requestqueueName, options);
 
-// create a processor that we can use to process the messages
-// Abstraction around the `ServiceBusReceiver` that allows using an event based model for processing received message
-ServiceBusProcessor processor = client.CreateProcessor(queueName, options);
 
 // add handler to process messages
 processor.ProcessMessageAsync += MessageHandler;
@@ -38,7 +36,7 @@ processor.ProcessErrorAsync += ErrorHandler;
 // start processing 
 await processor.StartProcessingAsync();
 
-Console.WriteLine("Wait for a minute and then press any key to end the processing");
+Console.WriteLine("Press any key to exit");
 Console.ReadKey();
 
 await processor.StopProcessingAsync();
@@ -46,6 +44,16 @@ await processor.StopProcessingAsync();
 // handle received messages
 async Task MessageHandler(ProcessMessageEventArgs args)
 {
+    if (!await adminClient.QueueExistsAsync(args.Message.ReplyTo))
+    {
+        await adminClient.CreateQueueAsync(new CreateQueueOptions(args.Message.ReplyTo)
+        {
+            LockDuration = TimeSpan.FromSeconds(2),
+            AutoDeleteOnIdle = TimeSpan.FromMinutes(5),
+        });
+    }
+    ServiceBusSender reply = client.CreateSender(args.Message.ReplyTo);
+    
     string body = args.Message.Body.ToString();
     Console.WriteLine($"Received: {body}");
     Console.WriteLine("==================METADATA=================================");
@@ -53,10 +61,16 @@ async Task MessageHandler(ProcessMessageEventArgs args)
     {
         Console.WriteLine($"{applicationProperty.Key} - {applicationProperty.Value}");
     }
-    
-    Console.WriteLine($"{args.Message.MessageId}");
+
+    var messageId = args.Message.MessageId;
+    Console.WriteLine($"{messageId}");
     Console.WriteLine("===================================================");
     // complete the message. message is deleted from the queue. 
+
+    var replyMessage = new ServiceBusMessage($"Reply to {messageId}") { CorrelationId = messageId};
+    
+    await reply.SendMessageAsync(replyMessage);
+    
     await args.CompleteMessageAsync(args.Message);
 }
 

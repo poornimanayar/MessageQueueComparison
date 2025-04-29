@@ -13,10 +13,11 @@ if (await adminClient.QueueExistsAsync(queueName))
     ServiceBusSessionProcessorOptions sessionProcessorOptions = new()
     {
         AutoCompleteMessages = false,
-        MaxConcurrentSessions = 1,
+        MaxConcurrentSessions = 2,
         ReceiveMode = ServiceBusReceiveMode.PeekLock,
         SessionIdleTimeout = TimeSpan.FromMinutes(3),
         MaxAutoLockRenewalDuration = TimeSpan.FromMinutes(5),
+        PrefetchCount = 10
         //SessionIds = use a list of sessionIds to filter the sessions to process or leave empty to process all sessions
     };
 
@@ -46,7 +47,7 @@ async Task MessageHandler(ProcessSessionMessageEventArgs args)
     //check whether this is the last message in the session
     var isLast = args.Message.ApplicationProperties["IsLast"];
 
-    if (isLast != null && (bool)isLast)
+    if (bool.Parse(isLast.ToString() ?? string.Empty)) 
     {
         Console.WriteLine($"Last message in the session {args.Message.SessionId}");
         await args.SetSessionStateAsync(null);

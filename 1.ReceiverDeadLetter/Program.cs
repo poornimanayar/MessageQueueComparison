@@ -53,11 +53,11 @@ async Task MessageHandler(ProcessMessageEventArgs args)
     {
         Console.WriteLine($"{applicationProperty.Key} - {applicationProperty.Value}");
     }
-    
     Console.WriteLine($"{args.Message.MessageId}");
     Console.WriteLine("===================================================");
-    // complete the message. message is deleted from the queue. 
-    await args.CompleteMessageAsync(args.Message);
+    
+    await args.DeadLetterMessageAsync(args.Message, deadLetterReason: "Appln dead letter" , deadLetterErrorDescription:"Because I want to be lazy!");
+
 }
 
 // handle any errors when receiving messages

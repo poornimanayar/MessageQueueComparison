@@ -11,7 +11,7 @@ if (!await adminClient.QueueExistsAsync(queueName))
 {
     await adminClient.CreateQueueAsync(new CreateQueueOptions(queueName)
     {
-        LockDuration = TimeSpan.FromSeconds(2) 
+        LockDuration = TimeSpan.FromSeconds(2)
     });
 }
 
@@ -21,7 +21,9 @@ ServiceBusSender sender = client.CreateSender(queueName);
 
 string messageBody = string.Empty;
 
-while (true)
+int i = 0;
+
+while (i < 10)
 {
     messageBody = RandomString.GetString(Types.ALPHANUMERIC_MIXEDCASE_WITH_SYMBOLS, 10, false);
 
@@ -30,13 +32,30 @@ while (true)
 
     //add custom metadata
     message.ApplicationProperties.Add("user-property-1", "user-property-value");
-    message.TimeToLive = TimeSpan.FromMinutes(5);                                                                                                                                                                       
+    if (i == 0)
+    {
+        message.ScheduledEnqueueTime = DateTimeOffset.UtcNow.AddMinutes(1);
+        // Use the producer client to send the batch of messages to the Service Bus queue
+        await sender.SendMessageAsync(message);
 
-    // Use the producer client to send the batch of messages to the Service Bus queue
-    await sender.SendMessageAsync(message);
+        Console.WriteLine($"Message with body {messageBody} sent to queue");
+    }
+   else if (i % 2 == 0)
+    {
+        // Use the producer client to send the batch of messages to the Service Bus queue
+        await sender.ScheduleMessageAsync(message, DateTimeOffset.UtcNow.AddMinutes(1));
 
-    Console.WriteLine($"Message with body {messageBody} sent to queue");
+        Console.WriteLine($"Message with body {messageBody} sent to queue");
+    }
+    else
+    {
+        // Use the producer client to send the batch of messages to the Service Bus queue
+        await sender.SendMessageAsync(message);
+
+        Console.WriteLine($"Message with body {messageBody} sent to queue");
+    }
 
     Thread.Sleep(3000);
-}
 
+    i++;
+}

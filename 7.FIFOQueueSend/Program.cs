@@ -13,48 +13,32 @@ var sqsClient = new AmazonSQSClient(accessKey, secret, RegionEndpoint.GetBySyste
 
 var attributeValues = new string[] { "value1", "value2", "value3" };
 Random random = new();
-
+int i = 1;
 while (true)
 {
     //create a random message description of max 10 characters and random length
     var description = $"{RandomString.GetString(Types.ALPHANUMERIC_MIXEDCASE_WITH_SYMBOLS, 10, true)}";
 
-    Console.WriteLine($"Sending message with description : {description}");
+    MySqsMessage message = new(description, i);
 
-    MySqsMessage message = new(description);
-
-    //create message attributes
-    Dictionary<string, MessageAttributeValue> messageAttributes = new()
-    { { "my-attribute", new()
-    {
-        DataType = "String", //can be Number, String, Binary
-        StringValue = attributeValues[random.Next(0, attributeValues.Length)]
-    } },
-    { "my-attribute-int", new()
-    {
-        DataType = "Number",
-        StringValue = "5" //the StringValue is interpreted and validated as a number when sending
-    } },
-    { "my-attribute-custom", new()
-    {
-        DataType = "Number.my-custom-label",//create a custom data type by appending the label to the data type
-        StringValue = "5" //the StringValue is interpreted and validated as a number when sending
-    } }};
-
+    var messageGroupId = random.Next(0, 3).ToString();
     //send the message to the queue, get the system assigned message id, max 100 characters
     var sendMessageResponse = await sqsClient.SendMessageAsync(new SendMessageRequest
     {
         QueueUrl = queueUrl,
         MessageBody = JsonSerializer.Serialize(message),
-        MessageAttributes = messageAttributes
+        MessageGroupId = messageGroupId,
+        MessageDeduplicationId = Guid.NewGuid().ToString()
     });
     
-    Console.WriteLine($"Sent message successfully, message id : {sendMessageResponse.MessageId}");
+    Console.WriteLine($"Sending message with description : {description}, message number {i}, message group : {messageGroupId}");
 
     Thread.Sleep(2000);
+
+    i++;
 }
 
 
-public record MySqsMessage(string Description);
+public record MySqsMessage(string Description, int MessageNumber);
 
 

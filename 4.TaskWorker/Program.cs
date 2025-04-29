@@ -6,6 +6,7 @@ var connectionFactory = new ConnectionFactory { HostName = "localhost", UserName
 using var connection = await connectionFactory.CreateConnectionAsync();
 using var channel = await connection.CreateChannelAsync();
 
+
 await channel.QueueDeclareAsync("taskqueue", durable: true, autoDelete: false, arguments: null, exclusive: false);
 
 //for fair dispatch

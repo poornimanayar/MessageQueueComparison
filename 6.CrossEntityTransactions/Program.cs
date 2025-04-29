@@ -2,21 +2,27 @@
 using Azure.Messaging.ServiceBus.Administration;
 using System.Transactions;
 
-var queueName = "transactions";
-
 ServiceBusAdministrationClient adminClient = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
 
-//create queue
-if (!await adminClient.QueueExistsAsync(queueName))
+if (!await adminClient.QueueExistsAsync("queue1"))
 {
-    await adminClient.CreateQueueAsync(queueName);
+    await adminClient.CreateQueueAsync("queue1");
 }
+if (!await adminClient.QueueExistsAsync("queue2"))
+{
+    await adminClient.CreateQueueAsync("queue2");
+}
+if (!await adminClient.QueueExistsAsync("queue3"))
+{
+    await adminClient.CreateQueueAsync("queue3");
+}
+ServiceBusClient senderClient = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
+
+await using ServiceBusSender sender = senderClient.CreateSender("queue1");
+await sender.SendMessageAsync(new ServiceBusMessage());
 
 ServiceBusClient client = new(Environment.GetEnvironmentVariable("ASB:ConnectionString")
-    , new ServiceBusClientOptions() { EnableCrossEntityTransactions = true});
-
-await using ServiceBusSender sender = client.CreateSender(queueName);
-
+    , new ServiceBusClientOptions() { EnableCrossEntityTransactions = true });
 
 ServiceBusReceiver receiverA = client.CreateReceiver("queue1");
 ServiceBusSender senderB = client.CreateSender("queue2");
@@ -26,9 +32,9 @@ ServiceBusReceivedMessage receivedMessage = await receiverA.ReceiveMessageAsync(
 
 using (var ts = new TransactionScope(TransactionScopeAsyncFlowOption.Enabled))
 {
-    await receiverA.CompleteMessageAsync(receivedMessage);
     await senderB.SendMessageAsync(new ServiceBusMessage());
     await senderC.SendMessageAsync(new ServiceBusMessage());
+    await receiverA.CompleteMessageAsync(receivedMessage);
     ts.Complete();
 }
 

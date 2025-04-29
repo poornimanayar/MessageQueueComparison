@@ -26,7 +26,7 @@ string messageBody = string.Empty;
 
 for (int i = 0; i < 100; i++)
 {
-    messageBody = RandomString.GetString(Types.ALPHANUMERIC_MIXEDCASE_WITH_SYMBOLS, 10, true);
+    messageBody = RandomString.GetString(Types.ALPHANUMERIC_MIXEDCASE_WITH_SYMBOLS, 10, false);
 
     //create unique application-generated session id to group messages into a session
     var sessionId = random.Next(0, 3).ToString();
@@ -34,12 +34,15 @@ for (int i = 0; i < 100; i++)
     var message = new ServiceBusMessage($"{messageBody}") { SessionId = sessionId};
 
     //indicates last message in the session
-    message.ApplicationProperties.Add("IsLast", i == 99 ? 1 : 0);
+    message.ApplicationProperties.Add("IsLast", i == 99 );
 
     // Use the producer client to send the batch of messages to the Service Bus queue
     await sender.SendMessageAsync(message);
 
     Console.WriteLine($"Message with sessionId {sessionId} sent to topic");
+    
+    Thread.Sleep(3000);
+    
 }
 
 Console.ReadKey();
