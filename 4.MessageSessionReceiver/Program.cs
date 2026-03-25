@@ -3,14 +3,15 @@ using Azure.Messaging.ServiceBus.Administration;
 
 var queueName = "messagesessionssample";
 
-ServiceBusAdministrationClient adminClient = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
+var connectionString = Environment.GetEnvironmentVariable("ASB:ConnectionString");
+ServiceBusAdministrationClient adminClient = new(connectionString);
+var serviceBusClient = new ServiceBusClient(connectionString);
+SessionBlocker sessionBlocker = new SessionBlocker(serviceBusClient, queueName);
 Random random = new();
 
 //create topic
 if (await adminClient.QueueExistsAsync(queueName))
 {
-    ServiceBusClient client = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
-
     ServiceBusSessionProcessorOptions sessionProcessorOptions = new()
     {
         AutoCompleteMessages = false,
@@ -22,7 +23,7 @@ if (await adminClient.QueueExistsAsync(queueName))
         //SessionIds = use a list of sessionIds to filter the sessions to process or leave empty to process all sessions
     };
 
-    ServiceBusSessionProcessor processor = client.CreateSessionProcessor(queueName, sessionProcessorOptions);
+    ServiceBusSessionProcessor processor = serviceBusClient.CreateSessionProcessor(queueName, sessionProcessorOptions);
 
     // add handler to process messages
     processor.ProcessMessageAsync += MessageHandler;
@@ -32,21 +33,21 @@ if (await adminClient.QueueExistsAsync(queueName))
 
     //processor.SessionInitializingAsync += SessionInitializing;
 
-    Task SessionInitializing(ProcessSessionEventArgs arg)
-    {
-        Console.WriteLine("Session initializing");
-        return Task.CompletedTask;
-    }
+    // Task SessionInitializing(ProcessSessionEventArgs arg)
+    // {
+    //     Console.WriteLine("Session initializing");
+    //     return Task.CompletedTask;
+    // }
 
     //processor.SessionClosingAsync += SessionClosing;
 
-    Task SessionClosing(ProcessSessionEventArgs arg)
-    {
-        Console.WriteLine("Session closing");
-        arg.SetSessionStateAsync(null);
-        arg.ReleaseSession();
-        return Task.CompletedTask;
-    }
+    // Task SessionClosing(ProcessSessionEventArgs arg)
+    // {
+    //     Console.WriteLine("Session closing");
+    //     arg.SetSessionStateAsync(null);
+    //     arg.ReleaseSession();
+    //     return Task.CompletedTask;
+    // }
 
     // start processing 
     await processor.StartProcessingAsync();
@@ -68,27 +69,29 @@ async Task MessageHandler(ProcessSessionMessageEventArgs args)
         var dateTimeOffset = start.Add(duration);
         Console.WriteLine($"Detected pause retries for session {args.SessionId}, waiting until {dateTimeOffset}");
 
-        if (dateTimeOffset < DateTimeOffset.Now)
+        if (dateTimeOffset > DateTimeOffset.Now)
         {
-            Console.WriteLine("Not time to consume this just yet, abandoning...");
+            Console.WriteLine("Not time to consume this just yet, abandoning and blocking the session...");
             args.ReleaseSession();
+            sessionBlocker.BlockUntil(args.SessionId, dateTimeOffset);
             await args.AbandonMessageAsync(args.Message);
+            return;
         }
 
-        Console.WriteLine("Time to consume this now, let's try again...");
+        //Console.WriteLine("Time to consume this now, let's try again... " + DateTime.UtcNow);
     }
     
     try
     {
         string body = args.Message.Body.ToString();
-        Console.WriteLine($"Received message with sessionId {args.Message.SessionId} and content {body}. ");
+        Console.WriteLine($"Received message with sessionId {args.Message.SessionId} and content {body} at {DateTime.UtcNow}");
         
         //check whether this is the last message in the session
         var isLast = args.Message.ApplicationProperties["IsLast"];
     
         var randomMessage =random.Next(0, 3).ToString();
         if (randomMessage == "1")
-            throw new Exception("kaboom");
+            throw new Exception("kaboom happening at " + DateTime.UtcNow);
     
         args.ReleaseSession();
         // complete the message. message is deleted from the queue. 
@@ -103,7 +106,7 @@ async Task MessageHandler(ProcessSessionMessageEventArgs args)
         {
             { "PauseRetries", true },
             { "PauseTimeStart", DateTimeOffset.UtcNow },
-            { "PauseDuration", TimeSpan.FromSeconds(10) },
+            { "PauseDuration", TimeSpan.FromSeconds(60) },
             
         };
         await args.AbandonMessageAsync(args.Message, properties);

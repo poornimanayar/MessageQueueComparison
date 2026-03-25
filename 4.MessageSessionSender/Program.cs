@@ -26,7 +26,7 @@ string messageBody = string.Empty;
 
 Dictionary<string, int> counter = new();
 
-for (int i = 0; i <50; i++)
+for (int i = 0; i <20; i++)
 {
     //create unique application-generated session id to group messages into a session
     var sessionId = random.Next(0, 3).ToString();
@@ -41,7 +41,7 @@ for (int i = 0; i <50; i++)
     var message = new ServiceBusMessage($"{i}") { SessionId = sessionId, TimeToLive = TimeSpan.FromSeconds(3)};
     
     //indicates last message in the session
-    message.ApplicationProperties.Add("IsLast", i == 49);
+    message.ApplicationProperties.Add("IsLast", i == 19);
 
     // Use the producer client to send the batch of messages to the Service Bus queue
     await sender.SendMessageAsync(message);
