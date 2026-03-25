@@ -28,6 +28,7 @@ consumer.ReceivedAsync += async (model, ea) =>
 
     //explicitly acknowledge the message; protect against message loss from worker crash
     await channel.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false);
+
 };
 
 await channel.BasicConsumeAsync("taskqueue", autoAck: false, consumer: consumer);
