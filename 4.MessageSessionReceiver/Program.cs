@@ -14,7 +14,7 @@ if (await adminClient.QueueExistsAsync(queueName))
     ServiceBusSessionProcessorOptions sessionProcessorOptions = new()
     {
         AutoCompleteMessages = false,
-        MaxConcurrentSessions = 1,
+        MaxConcurrentSessions = 2,
         ReceiveMode = ServiceBusReceiveMode.PeekLock,
         SessionIdleTimeout = TimeSpan.FromSeconds(3),
         MaxAutoLockRenewalDuration = TimeSpan.FromMinutes(5),
@@ -30,7 +30,7 @@ if (await adminClient.QueueExistsAsync(queueName))
     // add handler to process any errors
     processor.ProcessErrorAsync += ErrorHandler;
 
-    processor.SessionInitializingAsync += SessionInitializing;
+    //processor.SessionInitializingAsync += SessionInitializing;
 
     Task SessionInitializing(ProcessSessionEventArgs arg)
     {
@@ -38,7 +38,7 @@ if (await adminClient.QueueExistsAsync(queueName))
         return Task.CompletedTask;
     }
 
-    processor.SessionClosingAsync += SessionClosing;
+    //processor.SessionClosingAsync += SessionClosing;
 
     Task SessionClosing(ProcessSessionEventArgs arg)
     {
@@ -59,44 +59,63 @@ if (await adminClient.QueueExistsAsync(queueName))
 // handle received messages
 async Task MessageHandler(ProcessSessionMessageEventArgs args)
 {
+    if (args.Message.ApplicationProperties.ContainsKey("PauseRetries") &&
+        Convert.ToBoolean(args.Message.ApplicationProperties["PauseRetries"]))
+    {
+        var start = (DateTimeOffset)args.Message.ApplicationProperties["PauseTimeStart"];
+        var duration = (TimeSpan)args.Message.ApplicationProperties["PauseDuration"];
 
-    string body = args.Message.Body.ToString();
+        var dateTimeOffset = start.Add(duration);
+        Console.WriteLine($"Detected pause retries for session {args.SessionId}, waiting until {dateTimeOffset}");
 
-    Console.WriteLine($"Received message with sessionId {args.Message.SessionId} and content {body}. ");
+        if (dateTimeOffset < DateTimeOffset.Now)
+        {
+            Console.WriteLine("Not time to consume this just yet, abandoning...");
+            args.ReleaseSession();
+            await args.AbandonMessageAsync(args.Message);
+        }
 
-    //check whether this is the last message in the session
-    var isLast = args.Message.ApplicationProperties["IsLast"];
+        Console.WriteLine("Time to consume this now, let's try again...");
+    }
     
-    var randomMessage =random.Next(0, 3).ToString();
+    try
+    {
+        string body = args.Message.Body.ToString();
+        Console.WriteLine($"Received message with sessionId {args.Message.SessionId} and content {body}. ");
+        
+        //check whether this is the last message in the session
+        var isLast = args.Message.ApplicationProperties["IsLast"];
     
-    // if (randomMessage == "2")
-    // {
-    //     Console.WriteLine($"Abandoned message with body {body}");
-    //     await args.DeadLetterMessageAsync(args.Message);
-    // }
-    // else
-    // {
-    //     await args.CompleteMessageAsync(args.Message);
-    // }
+        var randomMessage =random.Next(0, 3).ToString();
+        if (randomMessage == "1")
+            throw new Exception("kaboom");
     
-    //args.ReleaseSession();
+        args.ReleaseSession();
+        // complete the message. message is deleted from the queue. 
+        await args.CompleteMessageAsync(args.Message);
+    }
+    catch (Exception e)
+    {
+        Console.WriteLine(e);
+        // somehow keep track of the session id so we can block further processing
+        args.ReleaseSession();
+        var properties = new Dictionary<string, object>
+        {
+            { "PauseRetries", true },
+            { "PauseTimeStart", DateTimeOffset.UtcNow },
+            { "PauseDuration", TimeSpan.FromSeconds(10) },
+            
+        };
+        await args.AbandonMessageAsync(args.Message, properties);
+        throw;
+    }
     
-    // if (bool.Parse(isLast.ToString() ?? string.Empty)) 
-    // {
-    //     Console.WriteLine($"Last message in the session {args.Message.SessionId}");
-    //    await args.SetSessionStateAsync(null);
-    //     args.ReleaseSession();
-    // }
-
-
-    args.ReleaseSession();
-    // complete the message. message is deleted from the queue. 
-    await args.CompleteMessageAsync(args.Message);
 }
 
 // handle any errors when receiving messages
 Task ErrorHandler(ProcessErrorEventArgs args)
 {
+    
     Console.WriteLine(args.Exception.ToString());
     return Task.CompletedTask;
 }
