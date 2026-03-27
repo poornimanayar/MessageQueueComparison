@@ -2,7 +2,7 @@
 using Azure.Messaging.ServiceBus.Administration;
 using RandomString4Net;
 
-var queueName = "messagesessionssample";
+var queueName = "messagesessionssample-20260327";
 
 ServiceBusAdministrationClient adminClient = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
 
@@ -26,16 +26,16 @@ string messageBody = string.Empty;
 
 Dictionary<string, int> counter = new();
 
-for (int i = 0; i <20; i++)
+for (int i = 0; i <25; i++)
 {
     //create unique application-generated session id to group messages into a session
-    var sessionId = random.Next(0, 3).ToString();
+    var sessionId = "1";// random.Next(0, 3).ToString();
     
-    if(counter.ContainsKey(sessionId))
-        counter[sessionId]++;
-    else
-        counter.Add(sessionId, 1);
-    
+    // if(counter.ContainsKey(sessionId))
+    //     counter[sessionId]++;
+    // else
+    //     counter.Add(sessionId, 1);
+    //
     messageBody = RandomString.GetString(Types.ALPHANUMERIC_MIXEDCASE_WITH_SYMBOLS, 10, false);
 
     var message = new ServiceBusMessage($"{i}") { SessionId = sessionId, TimeToLive = TimeSpan.FromSeconds(3)};
