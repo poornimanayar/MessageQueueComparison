@@ -2,7 +2,7 @@
 using Azure.Messaging.ServiceBus.Administration;
 using RandomString4Net;
 
-var queueName = "messagesessionssample-20260327";
+var queueName = "messagesessionssample-20260327.0";
 
 ServiceBusAdministrationClient adminClient = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
 
@@ -12,7 +12,8 @@ if (!await adminClient.QueueExistsAsync(queueName))
 {
     await adminClient.CreateQueueAsync(new CreateQueueOptions(queueName)
     {
-        RequiresSession = true
+        RequiresSession = true,
+        MaxDeliveryCount = 2000
     });
 }
 

@@ -1,7 +1,7 @@
 ﻿using Azure.Messaging.ServiceBus;
 using Azure.Messaging.ServiceBus.Administration;
 
-var queueName = "messagesessionssample-20260327";
+var queueName = "messagesessionssample-20260327.0";
 
 var connectionString = Environment.GetEnvironmentVariable("ASB:ConnectionString");
 ServiceBusAdministrationClient adminClient = new(connectionString);
