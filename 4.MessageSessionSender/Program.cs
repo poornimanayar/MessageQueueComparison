@@ -39,7 +39,7 @@ for (int i = 0; i <25; i++)
     //
     messageBody = RandomString.GetString(Types.ALPHANUMERIC_MIXEDCASE_WITH_SYMBOLS, 10, false);
 
-    var message = new ServiceBusMessage($"{i}") { SessionId = sessionId, TimeToLive = TimeSpan.FromSeconds(3)};
+    var message = new ServiceBusMessage($"{i}") { SessionId = sessionId};
     
     //indicates last message in the session
     message.ApplicationProperties.Add("IsLast", i == 19);
