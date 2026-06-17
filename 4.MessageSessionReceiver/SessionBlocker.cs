@@ -1,233 +1,71 @@
 using System.Collections.Concurrent;
 using Azure.Messaging.ServiceBus;
 
-public sealed class SessionBlocker : IAsyncDisposable
+
+public class SessionBlocker
 {
-    private readonly ServiceBusClient _client;
-    private readonly string _queueOrTopicName;
-    private readonly string? _subscriptionName;
-    private readonly ConcurrentDictionary<string, BlockEntry> _entries = new();
-    private readonly CancellationTokenSource _disposeCts = new();
+    private readonly ConcurrentDictionary<string, SessionBlockerEntry> entries = new();
+    private readonly ServiceBusClient client;
+    private readonly string queueOrTopicName;
+    private readonly string? subscriptionName;
 
     public SessionBlocker(
         ServiceBusClient client,
         string queueOrTopicName,
         string? subscriptionName = null)
     {
-        _client = client;
-        _queueOrTopicName = queueOrTopicName;
-        _subscriptionName = subscriptionName;
+        this.client = client;
+        this.queueOrTopicName = queueOrTopicName;
+        this.subscriptionName = subscriptionName;
     }
 
-    public void BlockUntil(string sessionId, DateTimeOffset lockUntil)
+    public async Task ReleaseSessions(DateTimeOffset now)
     {
-        if (lockUntil <= DateTimeOffset.UtcNow)
-        {
-            _entries.TryRemove(sessionId, out _);
-            return;
-        }
+        var toRelease = entries.Values.Where(x => x.BlockUntil < now).ToArray();
 
-        _entries.AddOrUpdate(
-            sessionId,
-            _ => BlockEntry.Start(sessionId, lockUntil, RunBlockLoopAsync),
-            (_, existing) =>
-            {
-                existing.Extend(lockUntil);
-                return existing;
-            });
-
-        // local function to capture this instance cleanly
-        async Task RunBlockLoopAsync(string sid, CancellationToken ct)
+        foreach (var entry in toRelease)
         {
-            await HoldSessionUntilAsync(sid, ct).ConfigureAwait(false);
+            Console.WriteLine("SB: Releasing block on session" + entry.SessionId);
+
+            await entry.Receiver.DisposeAsync();
+            entries.Remove(entry.SessionId, out _);
         }
     }
 
-    private async Task HoldSessionUntilAsync(string sessionId, CancellationToken callerToken)
+    public async Task BlockSessionUntil(string sessionId, DateTimeOffset blockUntil)
     {
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-            callerToken, _disposeCts.Token);
+        Console.WriteLine("SB: Blocking session" + sessionId);
 
-        var ct = linkedCts.Token;
-        ServiceBusSessionReceiver? receiver = null;
+        var receiver = await AcceptSessionAsync(sessionId, CancellationToken.None);
 
-        try
-        {
-            while (!ct.IsCancellationRequested)
-            {
-                if (!_entries.TryGetValue(sessionId, out var entry))
-                {
-                    return;
-                }
+        Console.WriteLine("SB: Blocked session" + sessionId);
 
-                var now = DateTimeOffset.UtcNow;
-                if (entry.LockUntil <= now)
-                {
-                    _entries.TryRemove(sessionId, out _);
-                    return;
-                }
-
-                if (receiver is null)
-                {
-                    try
-                    {
-                        receiver = await AcceptSessionAsync(sessionId, ct).ConfigureAwait(false);
-                    }
-                    catch (ServiceBusException ex) when (
-                        ex.Reason == ServiceBusFailureReason.SessionCannotBeLocked)
-                    {
-                        await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
-                        continue;
-                    }
-                }
-
-                // We have the session lock now. Keep renewing until the deadline.
-                while (!ct.IsCancellationRequested)
-                {
-                    if (!_entries.TryGetValue(sessionId, out entry))
-                    {
-                        return;
-                    }
-
-                    now = DateTimeOffset.UtcNow;
-                    if (entry.LockUntil <= now)
-                    {
-                        _entries.TryRemove(sessionId, out _);
-                        return;
-                    }
-
-                    // Renew somewhat periodically. You can tune this.
-                    var delay = TimeSpan.FromSeconds(20);
-                    var remaining = entry.LockUntil - now;
-                    if (remaining < delay)
-                    {
-                        delay = remaining;
-                    }
-
-                    if (delay > TimeSpan.Zero)
-                    {
-                        await Task.Delay(delay, ct).ConfigureAwait(false);
-                    }
-
-                    // Re-check after delay.
-                    if (!_entries.TryGetValue(sessionId, out entry) ||
-                        entry.LockUntil <= DateTimeOffset.UtcNow)
-                    {
-                        _entries.TryRemove(sessionId, out _);
-                        return;
-                    }
-
-                    try
-                    {
-                        await receiver.RenewSessionLockAsync(ct).ConfigureAwait(false);
-                    }
-                    catch (ServiceBusException ex) when (
-                        ex.Reason == ServiceBusFailureReason.SessionLockLost ||
-                        ex.Reason == ServiceBusFailureReason.ServiceTimeout)
-                    {
-                        await receiver.DisposeAsync().ConfigureAwait(false);
-                        receiver = null;
-
-                        // Try to reacquire on the outer loop.
-                        break;
-                    }
-                }
-            }
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            // expected on shutdown/unblock
-        }
-        finally
-        {
-            if (receiver is not null)
-            {
-                await receiver.DisposeAsync().ConfigureAwait(false);
-            }
-
-            _entries.TryRemove(sessionId, out _);
-        }
+        entries.AddOrUpdate(sessionId, s => new SessionBlockerEntry(s, receiver, blockUntil), (s, entry) => entry);
     }
 
-    private Task<ServiceBusSessionReceiver> AcceptSessionAsync(
+    Task<ServiceBusSessionReceiver> AcceptSessionAsync(
         string sessionId,
         CancellationToken ct)
     {
-        if (_subscriptionName is null)
+        if (subscriptionName is null)
         {
-            return _client.AcceptSessionAsync(
-                _queueOrTopicName,
+            return client.AcceptSessionAsync(
+                queueOrTopicName,
                 sessionId,
                 cancellationToken: ct);
         }
 
-        return _client.AcceptSessionAsync(
-            _queueOrTopicName,
-            _subscriptionName,
+        return client.AcceptSessionAsync(
+            queueOrTopicName,
+            subscriptionName,
             sessionId,
             cancellationToken: ct);
     }
+}
 
-    public async ValueTask DisposeAsync()
-    {
-        _disposeCts.Cancel();
-
-        foreach (var entry in _entries.Values)
-        {
-            entry.Cancel();
-        }
-
-        // Give workers a moment to notice cancellation if desired.
-        await Task.Yield();
-
-        _disposeCts.Dispose();
-    }
-
-    private sealed class BlockEntry
-    {
-        private long _lockUntilUnixMs;
-        private readonly CancellationTokenSource _cts;
-        private readonly Task _worker;
-
-        private BlockEntry(
-            string sessionId,
-            DateTimeOffset lockUntil,
-            Func<string, CancellationToken, Task> workerFactory)
-        {
-            _lockUntilUnixMs = lockUntil.ToUnixTimeMilliseconds();
-            _cts = new CancellationTokenSource();
-            _worker = workerFactory(sessionId, _cts.Token);
-        }
-
-        public DateTimeOffset LockUntil =>
-            DateTimeOffset.FromUnixTimeMilliseconds(
-                Interlocked.Read(ref _lockUntilUnixMs));
-
-        public static BlockEntry Start(
-            string sessionId,
-            DateTimeOffset lockUntil,
-            Func<string, CancellationToken, Task> workerFactory) =>
-            new(sessionId, lockUntil, workerFactory);
-
-        public void Extend(DateTimeOffset newLockUntil)
-        {
-            while (true)
-            {
-                var current = Interlocked.Read(ref _lockUntilUnixMs);
-                var proposed = newLockUntil.ToUnixTimeMilliseconds();
-
-                if (proposed <= current)
-                {
-                    return;
-                }
-
-                if (Interlocked.CompareExchange(ref _lockUntilUnixMs, proposed, current) == current)
-                {
-                    return;
-                }
-            }
-        }
-
-        public void Cancel() => _cts.Cancel();
-    }
+public class SessionBlockerEntry(string sessionId, ServiceBusSessionReceiver receiver, DateTimeOffset blockUntil)
+{
+    public string SessionId { get; } = sessionId;
+    public ServiceBusSessionReceiver Receiver { get; } = receiver;
+    public DateTimeOffset BlockUntil { get; } = blockUntil;
 }
