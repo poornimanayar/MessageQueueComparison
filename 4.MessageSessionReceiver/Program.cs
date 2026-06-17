@@ -1,17 +1,23 @@
-﻿using Azure.Messaging.ServiceBus;
+﻿using System.Collections.Concurrent;
+using Azure.Messaging.ServiceBus;
 using Azure.Messaging.ServiceBus.Administration;
 
 var queueName = "messagesessionssample-20260327.0";
 
-var connectionString = Environment.GetEnvironmentVariable("ASB:ConnectionString");
-ServiceBusAdministrationClient adminClient = new(connectionString);
+var connectionString = Environment.GetEnvironmentVariable("AzureServiceBus_ConnectionString");
+var clientOptions = new ServiceBusAdministrationClientOptions();
+ServiceBusAdministrationClient adminClient = new(connectionString, clientOptions);
 var serviceBusClient = new ServiceBusClient(connectionString);
-//SessionBlocker sessionBlocker = new SessionBlocker(serviceBusClient, queueName);
+SessionBlocker sessionBlocker = new SessionBlocker(serviceBusClient, queueName);
 Random random = new();
+
+var concurrentQueue = new ConcurrentQueue<(string, DateTimeOffset)>();
 
 //create topic
 if (await adminClient.QueueExistsAsync(queueName))
 {
+    ServiceBusSender sender = serviceBusClient.CreateSender(queueName);
+
     ServiceBusSessionProcessorOptions sessionProcessorOptions = new()
     {
         AutoCompleteMessages = false,
@@ -19,14 +25,15 @@ if (await adminClient.QueueExistsAsync(queueName))
         ReceiveMode = ServiceBusReceiveMode.PeekLock,
         SessionIdleTimeout = TimeSpan.FromMinutes(3),
         MaxAutoLockRenewalDuration = TimeSpan.FromMinutes(5),
-        PrefetchCount = 0
+        PrefetchCount = 0,
         //SessionIds = use a list of sessionIds to filter the sessions to process or leave empty to process all sessions
     };
 
     ServiceBusSessionProcessor processor = serviceBusClient.CreateSessionProcessor(queueName, sessionProcessorOptions);
 
     // add handler to process messages
-    processor.ProcessMessageAsync += MessageHandler;
+    processor.ProcessMessageAsync += eventArgs => MessageHandler(eventArgs, sender);
+    
 
     // add handler to process any errors
     processor.ProcessErrorAsync += ErrorHandler;
@@ -52,49 +59,100 @@ if (await adminClient.QueueExistsAsync(queueName))
     // start processing 
     await processor.StartProcessingAsync();
 
+    var tokenSource = new CancellationTokenSource();
+    var releaseTask = Task.Run(async () =>
+    {
+        while (!tokenSource.IsCancellationRequested)
+        {
+            await sessionBlocker.ReleaseSessions(DateTimeOffset.UtcNow);
+            await Task.Delay(3000, tokenSource.Token);
+        }
+    });
+
     Console.ReadKey();
+    tokenSource.Cancel();
+
+    await releaseTask;
 
     await processor.StopProcessingAsync();
 }
 
 // handle received messages
-async Task MessageHandler(ProcessSessionMessageEventArgs args)
+async Task MessageHandler(ProcessSessionMessageEventArgs args, ServiceBusSender sender)
 {
+    if (args.Message.ApplicationProperties.ContainsKey("BlockSession") &&
+        Convert.ToBoolean(args.Message.ApplicationProperties["BlockSession"]))
+    {
+        var blockUntil = (DateTimeOffset)args.Message.ApplicationProperties["BlockUntil"];
+        var blockSessionId = (string)args.Message.ApplicationProperties["SessionId"];
+
+        try
+        {
+            await sessionBlocker.BlockSessionUntil(blockSessionId, blockUntil);
+            args.ReleaseSession();
+            await args.CompleteMessageAsync(args.Message);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("Error blocking sessions");
+            args.ReleaseSession();
+
+            //Best effort
+            await args.CompleteMessageAsync(args.Message);
+        }
+        return;
+    }
+
     string body = args.Message.Body.ToString();
-    //Console.WriteLine($"{args.Message.DeliveryCount} for {body}");
-    // if (args.Message.ApplicationProperties.ContainsKey("PauseRetries") &&
-    //     Convert.ToBoolean(args.Message.ApplicationProperties["PauseRetries"]))
-    // {
-    //     var start = (DateTimeOffset)args.Message.ApplicationProperties["PauseTimeStart"];
-    //     var duration = (TimeSpan)args.Message.ApplicationProperties["PauseDuration"];
-    //
-    //     var waitUntilTime = start.Add(duration);
-    //     Console.WriteLine($"Detected pause retries for session {args.SessionId} message {body}, waiting until {waitUntilTime}");
-    //
-    //     if (waitUntilTime > DateTimeOffset.Now)
-    //     {
-    //         Console.WriteLine($"Not time to consume this just yet, abandoning message {body} and blocking the session...");
-    //         args.ReleaseSession();
-    //        // sessionBlocker.BlockUntil(args.SessionId, waitUntilTime);
-    //        // await Task.Delay(TimeSpan.FromSeconds(5));
-    //        // Console.WriteLine("Sleeping for 5 seconds...");
-    //         await args.AbandonMessageAsync(args.Message);
-    //         return;
-    //     }
-    //     Console.WriteLine($"Time to consume this now, let's try again... {body}" + DateTime.UtcNow);
-    //     
-    // }
+    Console.WriteLine($"Delivery count {args.Message.DeliveryCount} for session {args.SessionId}");
+    if (args.Message.ApplicationProperties.ContainsKey("PauseRetries") &&
+        Convert.ToBoolean(args.Message.ApplicationProperties["PauseRetries"]))
+    {
+        var start = (DateTimeOffset)args.Message.ApplicationProperties["PauseTimeStart"];
+        var duration = (TimeSpan)args.Message.ApplicationProperties["PauseDuration"];
+
+        var waitUntilTime = start.Add(duration);
+        Console.WriteLine($"Detected pause retries for session {args.SessionId} message {body}, waiting until {waitUntilTime}");
+
+        if (waitUntilTime > DateTimeOffset.Now)
+        {
+            Console.WriteLine($"Not time to consume this just yet, abandoning message {body} and blocking the session...");
+
+            concurrentQueue.Enqueue((args.SessionId, waitUntilTime));
+
+            args.ReleaseSession();
+
+            //Console.WriteLine("Sleeping for 5 seconds...");
+            //await Task.Delay(TimeSpan.FromSeconds(5));
+            //Console.WriteLine("Waking up and abandoning...");
+
+            var message = new ServiceBusMessage("")
+            {
+                SessionId = Guid.NewGuid().ToString(),
+                ApplicationProperties =
+                {
+                    ["BlockSession"] = "true",
+                    ["SessionId"] = args.SessionId,
+                    ["BlockUntil"] = waitUntilTime
+                }
+            };
+            await sender.SendMessageAsync(message);
+
+            await args.AbandonMessageAsync(args.Message);
+            return;
+        }
+        Console.WriteLine($"Time to consume this now, let's try again... {body}" + DateTime.UtcNow);
+
+    }
     try
     {
        
         Console.WriteLine($"Received message with sessionId {args.Message.SessionId} and content {body} at {DateTime.UtcNow}");
-        
-        //check whether this is the last message in the session
-        var isLast = args.Message.ApplicationProperties["IsLast"];
-    
-        var randomMessage =random.Next(0, 2).ToString();
-        if (randomMessage == "1")
+
+        if (args.Message.SessionId == "7")
+        {
             throw new Exception("kaboom happening at " + DateTime.UtcNow);
+        }
     
         args.ReleaseSession();
         // complete the message. message is deleted from the queue. 
@@ -109,7 +167,7 @@ async Task MessageHandler(ProcessSessionMessageEventArgs args)
         {
             { "PauseRetries", true },
             { "PauseTimeStart", DateTimeOffset.UtcNow },
-            { "PauseDuration", TimeSpan.FromSeconds(60) },
+            { "PauseDuration", TimeSpan.FromSeconds(15) },
             
         };
         await args.AbandonMessageAsync(args.Message,properties);

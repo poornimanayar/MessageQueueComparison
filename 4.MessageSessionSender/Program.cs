@@ -4,7 +4,7 @@ using RandomString4Net;
 
 var queueName = "messagesessionssample-20260327.0";
 
-ServiceBusAdministrationClient adminClient = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
+ServiceBusAdministrationClient adminClient = new(Environment.GetEnvironmentVariable("AzureServiceBus_ConnectionString"));
 
 
 //create topic
@@ -17,7 +17,7 @@ if (!await adminClient.QueueExistsAsync(queueName))
     });
 }
 
-ServiceBusClient client = new(Environment.GetEnvironmentVariable("ASB:ConnectionString"));
+ServiceBusClient client = new(Environment.GetEnvironmentVariable("AzureServiceBus_ConnectionString"));
 
 ServiceBusSender sender = client.CreateSender(queueName);
 
@@ -27,11 +27,11 @@ string messageBody = string.Empty;
 
 Dictionary<string, int> counter = new();
 
-for (int i = 0; i <25; i++)
+for (int i = 0; i <50; i++)
 {
     //create unique application-generated session id to group messages into a session
-    var sessionId = "1";// random.Next(0, 3).ToString();
-    
+    var sessionId = i.ToString();
+
     // if(counter.ContainsKey(sessionId))
     //     counter[sessionId]++;
     // else
@@ -41,9 +41,6 @@ for (int i = 0; i <25; i++)
 
     var message = new ServiceBusMessage($"{i}") { SessionId = sessionId};
     
-    //indicates last message in the session
-    message.ApplicationProperties.Add("IsLast", i == 19);
-
     // Use the producer client to send the batch of messages to the Service Bus queue
     await sender.SendMessageAsync(message);
 
