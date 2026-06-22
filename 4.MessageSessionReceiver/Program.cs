@@ -13,8 +13,6 @@ var serviceBusClient = new ServiceBusClient(connectionString);
 SessionBlocker sessionBlocker = new SessionBlocker(serviceBusClient, queueName);
 Random random = new();
 
-var concurrentQueue = new ConcurrentQueue<(string, DateTimeOffset)>();
-
 //create topic
 if (await adminClient.QueueExistsAsync(queueName))
 {
@@ -97,8 +95,6 @@ async Task MessageHandler(ProcessSessionMessageEventArgs args, ServiceBusSender 
         if (waitUntilTime > DateTimeOffset.Now)
         {
             Console.WriteLine($"Not time to consume this just yet, abandoning message {body} and blocking the session...");
-
-            concurrentQueue.Enqueue((args.SessionId, waitUntilTime));
 
             args.ReleaseSession();
 
