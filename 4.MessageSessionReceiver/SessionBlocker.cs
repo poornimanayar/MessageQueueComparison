@@ -36,11 +36,25 @@ public class SessionBlocker
     {
         Console.WriteLine("SB: Blocking session" + sessionId);
 
-        var receiver = await AcceptSessionAsync(sessionId, CancellationToken.None);
+        int attempt = 0;
+        while (attempt < 10)
+        {
+            try
+            {
+                var receiver = await AcceptSessionAsync(sessionId, CancellationToken.None);
 
-        Console.WriteLine("SB: Blocked session" + sessionId);
+                Console.WriteLine("SB: Blocked session" + sessionId);
 
-        entries.AddOrUpdate(sessionId, s => new SessionBlockerEntry(s, receiver, blockUntil), (s, entry) => entry);
+                entries.AddOrUpdate(sessionId, s => new SessionBlockerEntry(s, receiver, blockUntil), (s, entry) => entry);
+                return;
+            }
+            catch (Exception e)
+            {
+                attempt++;
+                await Task.Delay(10);
+            }
+        }
+        Console.WriteLine("SB: Failed to block session" + sessionId);
     }
 
     Task<ServiceBusSessionReceiver> AcceptSessionAsync(
